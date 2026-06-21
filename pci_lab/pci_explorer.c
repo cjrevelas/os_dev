@@ -31,7 +31,8 @@ static int __init pci_explorer_init(void)
         pr_info( "Device not found..\n" );
         return 0;
     }
-    pr_info ( "name = %s\n", pci_name( pdev ) );
+    pr_info( "name = %s\n", pci_name( pdev ) );
+    pr_info( "class = %06x\n", pdev->class );
 
     return 0;
 }
