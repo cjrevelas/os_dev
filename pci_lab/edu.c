@@ -25,6 +25,16 @@ static int edu_probe( struct pci_dev *pdev, const struct pci_device_id *id )
 
   pr_info( "edu_device enabled\n" );
 
+  ret = pci_request_regions( pdev, "edu" );
+  if ( ret )
+  {
+    pr_err( "edu: failed to request BARs\n");
+    pci_disable_device( pdev );
+    return ret;
+  }
+
+  pr_info( "edu: BARs reserved\n" );
+
   return 0;
 }
 
