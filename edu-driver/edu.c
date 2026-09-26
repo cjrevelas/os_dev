@@ -1,0 +1,275 @@
+#include <linux/init.h>
+#include <linux/module.h>
+#include <linux/pci.h>
+#include <linux/slab.h>
+#include <linux/io.h>
+
+#define DRIVER_NAME "edu"
+
+/*
+* QEMU EDU device
+*/
+#define EDU_VENDOR_ID 0x1234
+#define EDU_DEVICE_ID 0x11e8
+
+/*
+* Define EDU BAR0 register offsets
+*/
+#define EDU_REG_IDENT    0x00
+#define EDU_REG_LIVENESS 0x04
+
+/*
+* Driver private data
+*/
+struct edu_device {
+    struct pci_dev *pdev;
+
+    /*
+    * BAR0 mapped into kernel virtual address space
+    * or
+    * Kernel virtual address corresponding to BAR0
+    *
+    */
+    void __iomem *mmio;
+};
+
+
+/*
+* Define the PCI device ID table
+*/
+static const struct pci_device_id edu_ids[] = {
+    { PCI_DEVICE( EDU_VENDOR_ID, EDU_DEVICE_ID ) },
+    {}
+};
+
+MODULE_DEVICE_TABLE( pci, edu_ids );
+
+
+/*
+* edu_probe: called by the PCI core when a matching device is found
+*/
+static int edu_probe( struct pci_dev *pdev, const struct pci_device_id *id )
+{
+    struct edu_device *edev;
+    int ret;
+    resource_size_t bar_start;
+    resource_size_t bar_len;
+    unsigned long bar_flags;
+
+    pr_info( "edu: probe() called\n" );
+
+    /*
+    * Allocate driver private data
+    */
+    edev = kzalloc( sizeof(*edev), GFP_KERNEL );
+    if ( !edev )
+        return -ENOMEM;
+
+    edev->pdev = pdev;
+
+    /*
+    * Associate our private structure with this PCI device
+    */
+    pci_set_drvdata( pdev, edev );
+
+    /*
+    * Enable the PCI device
+    */
+    ret = pci_enable_device( pdev );
+    if ( ret )
+    {
+        pr_err( "edu: pci_enable_device() failed\n" );
+        goto err_free;
+    }
+
+    /*
+    * Retrieve information about BAR0
+    */
+    bar_start = pci_resource_start( pdev, 0 );
+    bar_len   = pci_resource_len( pdev, 0 );
+    bar_flags = pci_resource_flags( pdev, 0 );
+
+    pr_info( "edu: BAR0 start = 0x%llx\n", (unsigned long long)bar_start );
+    pr_info( "edu: BAR0 length = 0x%llx\n", (unsigned long long)bar_len );
+    pr_info( "edu: BAR0 flags = 0x%lx\n", bar_flags );
+
+    /*
+    * Request ownership of the PCI resources
+    */
+    ret = pci_request_regions( pdev, DRIVER_NAME );
+    if ( ret )
+    {
+        pr_err( "edu: pci_request_regions() failed\n" );
+        goto err_disable;
+    }
+
+    /*
+    * Map BAR0 into kernel virtual address space
+    */
+    edev->mmio = pci_iomap( pdev, 0, 0 );
+    if ( !edev->mmio )
+    {
+        pr_err( "edu: pci_iomap() failed\n" );
+        ret = -ENOMEM;
+        goto err_release_regions;
+    } 
+    pr_info("edu: BAR0 mapped at %p\n", edev->mmio);
+
+    /*
+    * -------------------------------------------------------
+    * MMIO TEST
+    * -------------------------------------------------------
+    */
+    pr_info( "edu: IDENT    = 0x%08x\n", readl( edev->mmio + EDU_REG_IDENT ) );
+    pr_info( "edu: LIVENESS = 0x%08x\n", readl( edev->mmio + EDU_REG_LIVENESS ) );
+
+    /*
+    *--------------------------------------------------------
+    * BUS MASTERING    
+    *--------------------------------------------------------
+    *
+    * This enables the device to initiate PCI transactions.
+    *
+    * It does NOT perform DMA by itself.
+    */
+    pci_set_master( pdev );
+    pr_info( "edu: PCI bus mastering enabled\n" );
+
+    /*
+    *--------------------------------------------------------
+    * VERIFY BUS MASTER ENABLE    
+    *--------------------------------------------------------
+    */
+    {
+        u16 command;
+
+        ret = pci_read_config_word( pdev, PCI_COMMAND, &command );
+        if ( ret )
+        {
+            pr_err( "edu: failed to read PCI command\n " );
+            goto err_iounmap;
+        }
+        pr_info( "edu: PCI_COMMAND = 0x%04x\n", command );
+
+        if ( command & PCI_COMMAND_MASTER )
+        {
+            pr_info( "edu: Bus master enable = 1\n" );
+        }
+        else
+        {
+            pr_err( "edu: Bus master enable = 0\n" );
+        }
+    }
+
+    pr_info( "edu: device initialized successfully\n" );
+
+    return 0;
+
+err_iounmap:
+    pci_iounmap( pdev, edev->mmio );
+
+err_release_regions:
+    pci_release_regions( pdev );
+
+err_disable:
+    pci_disable_device( pdev );
+
+err_free:
+    pci_set_drvdata( pdev, NULL );
+
+    /*
+    * We used kzalloc(), so we must explicitly free memory
+    */
+    kfree( edev );
+
+    return ret;
+}
+
+
+/*
+* edu_remove: called by the PCI core when the device is removed
+*             or the driver is unloaded
+*/
+static void edu_remove( struct pci_dev *pdev )
+{
+    struct edu_device *edev;
+
+    pr_info( "edu: remove() called\n" );
+
+    edev = pci_get_drvdata( pdev );
+    if ( !edev ) return;
+
+    /*
+    * Disable bus mastering before tearing the device down
+    */
+    pci_clear_master( pdev );
+    pr_info( "edu: PCI bus mastering disabled\n" );
+
+    /*
+    * Unmap BAR0
+    */
+    if ( edev->mmio ) pci_iounmap( pdev, edev->mmio );
+
+    /*
+    * Disable the PCI device
+    */
+    pci_disable_device( pdev );
+
+    /*
+    * Release PCI resources
+    */
+    pci_release_regions( pdev );
+
+    /*
+    * Remove driver-private data
+    */
+    pci_set_drvdata( pdev, NULL );
+
+    /*
+    * We used kzalloc(), so we must explicitly free memory
+    */
+    kfree( edev );
+
+    pr_info( "edu: device removed\n" );
+}
+
+
+/*
+* Register the PCI driver
+*/
+static struct pci_driver edu_driver = {
+    .name = DRIVER_NAME,
+    .id_table = edu_ids,
+    .probe = edu_probe,
+    .remove = edu_remove
+};
+
+
+/*
+* edu_init
+*/
+static int __init edu_init( void )
+{
+    pr_info( "edu: driver loading..\n" );
+
+    return pci_register_driver( &edu_driver );
+}
+
+
+/*
+* edu_exit
+*/
+static void __exit edu_exit( void )
+{
+    pr_info( "edu: driver unloading..\n" );
+
+    pci_unregister_driver( &edu_driver );
+}
+
+
+module_init( edu_init );
+module_exit( edu_exit );
+
+MODULE_LICENSE( "GPL" );
+MODULE_AUTHOR( "Constantinos J. Revelas" );
+MODULE_DESCRIPTION( "QEMU EDU PCI Driver" );
