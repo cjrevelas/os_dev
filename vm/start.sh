@@ -18,4 +18,4 @@ qemu-system-x86_64 \
     -netdev user,id=net0,hostfwd=tcp::2222-:22 \
     -device virtio-net-pci,netdev=net0 \
     \
-    -virtfs local,path=/home/cjrevelas/gitRepos/pci_lab/edu-driver,mount_tag=hostshare,security_model=none,id=hostshare
+    -virtfs local,path=/home/cjrevelas/gitRepos/pci_lab/edu_driver,mount_tag=hostshare,security_model=none,id=hostshare
