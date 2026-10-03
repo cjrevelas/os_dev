@@ -3,6 +3,9 @@
 #include <linux/pci.h>
 #include <linux/slab.h>
 #include <linux/io.h>
+#include <linux/dma-mapping.h>
+#include <linux/delay.h>
+#include <linux/string.h>
 
 #define DRIVER_NAME "edu"
 
@@ -17,6 +20,30 @@
 */
 #define EDU_REG_IDENT    0x00
 #define EDU_REG_LIVENESS 0x04
+
+/*
+* Define EDU DMA register
+*/
+#define EDU_REG_DMA_SRC   0x80
+#define EDU_REG_DMA_DST   0x88
+#define EDU_REG_DMA_COUNT 0x90
+#define EDU_REG_DMA_CMD   0x98
+
+/*
+* EDU internal DMA buffer
+*/
+#define EDU_DMA_BUFFER 0x40000
+
+/*
+* DMA buffer size
+*/
+#define EDU_DMA_SIZE 4096
+
+/*
+* DMA command bits
+*/
+#define EDU_DMA_START    0x01
+#define EDU_DMA_FROM_EDU 0x02
 
 /*
 * Driver private data
