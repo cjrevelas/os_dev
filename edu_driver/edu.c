@@ -249,6 +249,25 @@ static int edu_probe( struct pci_dev *pdev, const struct pci_device_id *id )
     pr_info( "edu: 28-bit DMA mask configured\n" );
 
     /*
+    * -------------------------------------------------------
+    * ALLOCATE DMA BUFFER
+    * -------------------------------------------------------
+    */
+    edev->dma_virt = dma_alloc_coherent( &pdev->dev, EDU_DMA_SIZE, &edev->dma_handle, GFP_KERNEL );
+
+    if ( !edev->dma_virt )
+    {
+        pr_err( "edu: dma_alloc_coherent() failed\n" );
+        ret = -ENOMEM;
+        goto err_iounmap;
+    }
+
+    pr_info( "edu: DMA CPU address = %px\n", edev->dma_virt );
+    pr_info( "edu: DMA DEVICE address = 0x%llx\n", (unsigned long long)edev->dma_handle );
+    pr_info( "edu: DMA DEVICE address = %pad\n", &edev->dma_handle );
+
+
+    /*
     *--------------------------------------------------------
     * BUS MASTERING    
     *--------------------------------------------------------
@@ -290,6 +309,11 @@ static int edu_probe( struct pci_dev *pdev, const struct pci_device_id *id )
 
     return 0;
 
+/*
+*--------------------------------------------------------
+* ERROR PATHS
+*--------------------------------------------------------
+*/
 err_iounmap:
     pci_iounmap( pdev, edev->mmio );
 
