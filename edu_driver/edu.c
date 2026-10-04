@@ -83,6 +83,61 @@ static const struct pci_device_id edu_ids[] = {
 
 MODULE_DEVICE_TABLE( pci, edu_ids );
 
+/*
+* Perform one DMA transfer and wait for completion.
+*/
+static int edu_dma_transfer( struct edu_device *edev,
+                             dma_addr_t src,
+                             dma_addr_t dst,
+                             u32 count,
+                             u32 command)
+{
+    unsigned int timeout = 1000000;
+
+    /*
+    * Specify DMA source address.
+    */
+    writeq( src, edev->mmio + EDU_REG_DMA_SRC );
+
+    /*
+    * Specify DMA destination address.
+    */
+    writeq( dst, edev->mmio + EDU_REG_DMA_DST );
+
+    /*
+    * Specify number of bytes to transfer.
+    */
+    writel( count, edev->mmio + EDU_REG_DMA_COUNT );
+
+    /*
+    * Start DMA transfer: bit 0 = start.
+    */
+    writel( command, edev->mmio + EDU_REG_DMA_CMD );
+
+    /*
+    * Wait until the EDU device clears the START bit.
+    */
+    while ( readl( edev->mmio + EDU_REG_DMA_CMD ) & EDU_DMA_START )
+    {
+        cpu_relax();
+
+        /*
+        * Prevent an infinite loop if something goes wrong.
+        */
+        if ( --timeout == 0 )
+        {
+            pr_err( "edu: DMA timeout\n" );
+            return -ETIMEDOUT;
+        }
+
+        /*
+        * Avoid spinning completely flat-out.
+        */
+        udelay(1);
+    }
+
+    return 0;
+}
 
 /*
 * edu_probe: called by the PCI core when a matching device is found
