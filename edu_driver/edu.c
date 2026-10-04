@@ -319,8 +319,77 @@ static int edu_probe( struct pci_dev *pdev, const struct pci_device_id *id )
     memcpy( edev->dma_virt, test_data, sizeof( test_data ) );
     pr_info( "edu: DMA buffer before transfer: \"%s\"\n", (char *)edev->dma_virt );
 
-    pr_info( "edu: device initialized successfully\n" );
+    /*
+    *--------------------------------------------------------
+    * DMA #1: RAM -> EDU
+    *--------------------------------------------------------
+    *
+    * Source: our RAM buffer
+    * Destination: EDU internal DMA buffer
+    * Command:
+    *       bit 0 -> START
+    *       bit 1 = 0 => RAM -> EDU
+    */
+    pr_info( "edu: starting DMA RAM -> EDU\n" );
 
+    ret = edu_dma_transfer( edev, edev->dma_handle, EDU_DMA_BUFFER, sizeof( test_data ), EDU_DMA_START );
+    if ( ret )
+    {
+        pr_err( "edu: RAM -> EDU DMA failed\n" );
+        goto err_free_dma;
+    }
+
+    pr_info( "edu: RAM->EDU DMA competed successfully\n" );
+
+    /*
+    *--------------------------------------------------------
+    * DMA #2: EDU -> RAM
+    *--------------------------------------------------------
+    *
+    * Source: EDU internal DMA buffer
+    * Destination: our RAM buffer
+    * Command:
+    *       bit 0 -> START
+    *       bit 1 = 1 => EDU -> RAM
+    */
+    pr_info( "edu: starting DMA EDU -> RAM\n" );
+
+    ret = edu_dma_transfer( edev, EDU_DMA_BUFFER, edev->dma_handle, sizeof( test_data ), EDU_DMA_START | EDU_DMA_FROM_EDU);
+    if ( ret )
+    {
+        pr_err( "edu: EDU -> RAM DMA failed\n" );
+        goto err_free_dma;
+    }
+
+    pr_info( "edu: EDU->RAM DMA competed successfully\n" );
+
+    /*
+    *--------------------------------------------------------
+    * VERIFY DMA OPERATIONS
+    *--------------------------------------------------------
+    *
+    * The data should have made a round trip: RAM -> EDU -> RAM through DMA operations
+    *
+    * Compare the result with the original test string.
+    */
+    if ( memcmp( edev->dma_virt, test_data, sizeof( test_data ) ) == 0 )
+    {
+        pr_info( "edu: DMA verification SUCCESS\n" );
+        pr_info( "edu: received data = \"%s\"\n", (char *)edev->dma_virt );
+    }
+    else
+    {
+        pr_info( "edu: DMA verification FAILED\n" );
+        pr_info( "edu: received data = \"%s\"\n", (char *)edev->dma_virt );
+
+        ret = -EIO;
+        goto err_free_dma;
+    }
+
+    /*
+    * If we get here, every operation completed successfully.
+    */
+    pr_info( "edu: device initialized successfully\n" );
     return 0;
 
 /*
