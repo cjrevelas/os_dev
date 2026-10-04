@@ -150,10 +150,19 @@ static int edu_probe( struct pci_dev *pdev, const struct pci_device_id *id )
     resource_size_t bar_len;
     unsigned long bar_flags;
 
+    /*
+    * Test-data for the DMA transfer.
+    */
+    const char test_data[] = "Hello from DMA!";
+
     pr_info( "edu: probe() called\n" );
 
     /*
-    * Allocate driver private data
+    * Allocate driver private data.
+    *
+    * IMPORTANT:
+    * We use kzalloc(), therefore we must explicitly use kfree()
+    * for deallocation.
     */
     edev = kzalloc( sizeof(*edev), GFP_KERNEL );
     if ( !edev )
@@ -216,6 +225,28 @@ static int edu_probe( struct pci_dev *pdev, const struct pci_device_id *id )
     */
     pr_info( "edu: IDENT    = 0x%08x\n", readl( edev->mmio + EDU_REG_IDENT ) );
     pr_info( "edu: LIVENESS = 0x%08x\n", readl( edev->mmio + EDU_REG_LIVENESS ) );
+
+    /*
+    * -------------------------------------------------------
+    * DMA ADDRESS MASK
+    * -------------------------------------------------------
+    *
+    * QEMU EDU device supports 28-bit DMA addresses by default.
+    *
+    * Therefore the device can address:
+    *
+    *          0x00000000 - 0x0ffffffff
+    *
+    */
+    ret = dma_set_mask_and_coherent( &pdev->dev, DMA_BIT_MASK( 28 ) );
+    
+    if ( ret )
+    {
+        pr_err( "edu: failed to set 28-bit DMA mask\n" );
+        goto err_iounmap;
+    }
+
+    pr_info( "edu: 28-bit DMA mask configured\n" );
 
     /*
     *--------------------------------------------------------
