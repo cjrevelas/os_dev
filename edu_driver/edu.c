@@ -1,3 +1,6 @@
+/*
+* Linux-kernel headers.
+*/
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/pci.h>
@@ -10,19 +13,19 @@
 #define DRIVER_NAME "edu"
 
 /*
-* QEMU EDU device
+* QEMU EDU device.
 */
 #define EDU_VENDOR_ID 0x1234
 #define EDU_DEVICE_ID 0x11e8
 
 /*
-* Define EDU BAR0 register offsets
+* Define EDU BAR0 register offsets.
 */
 #define EDU_REG_IDENT    0x00
 #define EDU_REG_LIVENESS 0x04
 
 /*
-* Define EDU DMA register
+* Define EDU DMA register.
 */
 #define EDU_REG_DMA_SRC   0x80
 #define EDU_REG_DMA_DST   0x88
@@ -30,31 +33,31 @@
 #define EDU_REG_DMA_CMD   0x98
 
 /*
-* EDU internal DMA buffer
+* EDU internal DMA buffer.
 */
 #define EDU_DMA_BUFFER 0x40000
 
 /*
-* DMA buffer size
+* DMA buffer size.
 */
 #define EDU_DMA_SIZE 4096
 
 /*
-* DMA command bits
+* DMA command bits.
 */
 #define EDU_DMA_START    0x01
 #define EDU_DMA_FROM_EDU 0x02
 
 /*
-* Driver private data
+* Driver private data.
 */
 struct edu_device {
     struct pci_dev *pdev;
 
     /*
-    * BAR0 mapped into kernel virtual address space
+    * BAR0 mapped into kernel virtual address space.
     * or
-    * Kernel virtual address corresponding to BAR0
+    * Kernel virtual address corresponding to BAR0.
     *
     */
     void __iomem *mmio;
@@ -63,10 +66,10 @@ struct edu_device {
     * DMA buffer
     *
     * dma_virt:
-    *       CPU virtual address used by the CPU
+    *       CPU virtual address used by the CPU.
     *
     * dma_handle:
-    *       DMA/bus address used by the device
+    *       DMA/bus address used by the device.
     */
     void *dma_virt;
     dma_addr_t dma_handle;
@@ -74,7 +77,7 @@ struct edu_device {
 
 
 /*
-* Define the PCI device ID table
+* Define the PCI device ID table.
 */
 static const struct pci_device_id edu_ids[] = {
     { PCI_DEVICE( EDU_VENDOR_ID, EDU_DEVICE_ID ) },
@@ -140,7 +143,7 @@ static int edu_dma_transfer( struct edu_device *edev,
 }
 
 /*
-* edu_probe: called by the PCI core when a matching device is found
+* edu_probe: called by the PCI core when a matching device is found.
 */
 static int edu_probe( struct pci_dev *pdev, const struct pci_device_id *id )
 {
@@ -171,12 +174,12 @@ static int edu_probe( struct pci_dev *pdev, const struct pci_device_id *id )
     edev->pdev = pdev;
 
     /*
-    * Associate our private structure with this PCI device
+    * Associate our private structure with this PCI device.
     */
     pci_set_drvdata( pdev, edev );
 
     /*
-    * Enable the PCI device
+    * Enable the PCI device.
     */
     ret = pci_enable_device( pdev );
     if ( ret )
@@ -186,7 +189,7 @@ static int edu_probe( struct pci_dev *pdev, const struct pci_device_id *id )
     }
 
     /*
-    * Retrieve information about BAR0
+    * Retrieve information about BAR0.
     */
     bar_start = pci_resource_start( pdev, 0 );
     bar_len   = pci_resource_len( pdev, 0 );
@@ -197,7 +200,7 @@ static int edu_probe( struct pci_dev *pdev, const struct pci_device_id *id )
     pr_info( "edu: BAR0 flags = 0x%lx\n", bar_flags );
 
     /*
-    * Request ownership of the PCI resources
+    * Request ownership of the PCI resources.
     */
     ret = pci_request_regions( pdev, DRIVER_NAME );
     if ( ret )
@@ -207,7 +210,7 @@ static int edu_probe( struct pci_dev *pdev, const struct pci_device_id *id )
     }
 
     /*
-    * Map BAR0 into kernel virtual address space
+    * Map BAR0 into kernel virtual address space.
     */
     edev->mmio = pci_iomap( pdev, 0, 0 );
     if ( !edev->mmio )
@@ -280,9 +283,7 @@ static int edu_probe( struct pci_dev *pdev, const struct pci_device_id *id )
     pr_info( "edu: PCI bus mastering enabled\n" );
 
     /*
-    *--------------------------------------------------------
-    * VERIFY BUS MASTER ENABLE    
-    *--------------------------------------------------------
+    * Verify bus master enable.
     */
     {
         u16 command;
@@ -302,8 +303,21 @@ static int edu_probe( struct pci_dev *pdev, const struct pci_device_id *id )
         else
         {
             pr_err( "edu: Bus master enable = 0\n" );
+            ret = -EIO;
+            goto err_free_dma;
         }
     }
+
+    /*
+    *--------------------------------------------------------
+    * PREPARE DMA BUFFER
+    *--------------------------------------------------------
+    *
+    * CPU writes the test data into RAM.
+    */
+    memset( edev->dma_virt, 0, EDU_DMA_SIZE );
+    memcpy( edev->dma_virt, test_data, sizeof( test_data ) );
+    pr_info( "edu: DMA buffer before transfer: \"%s\"\n", (char *)edev->dma_virt );
 
     pr_info( "edu: device initialized successfully\n" );
 
@@ -314,6 +328,17 @@ static int edu_probe( struct pci_dev *pdev, const struct pci_device_id *id )
 * ERROR PATHS
 *--------------------------------------------------------
 */
+err_free_dma:
+    /*
+    * Stop device from initiating PCI transactions.
+    */
+    pci_clear_master( pdev );
+
+    /*
+    * Free coherent DMA memory.
+    */
+    dma_free_coherent( &pdev->dev, EDU_DMA_SIZE, edev->dma_virt, edev->dma_handle );
+
 err_iounmap:
     pci_iounmap( pdev, edev->mmio );
 
