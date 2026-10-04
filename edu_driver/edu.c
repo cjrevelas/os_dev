@@ -58,6 +58,18 @@ struct edu_device {
     *
     */
     void __iomem *mmio;
+
+    /*
+    * DMA buffer
+    *
+    * dma_virt:
+    *       CPU virtual address used by the CPU
+    *
+    * dma_handle:
+    *       DMA/bus address used by the device
+    */
+    void *dma_virt;
+    dma_addr_t dma_handle;
 };
 
 
