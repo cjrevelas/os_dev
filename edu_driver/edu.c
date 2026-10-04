@@ -380,6 +380,15 @@ static void edu_remove( struct pci_dev *pdev )
     pr_info( "edu: PCI bus mastering disabled\n" );
 
     /*
+    * Free DMA memory
+    */
+    if ( edev->dma_virt )
+    {
+        dma_free_coherent( &pdev->dev, EDU_DMA_SIZE, edev->dma_virt, edev->dma_handle );
+        pr_info( "edu: DMA buffer freed\n" );
+    }
+
+    /*
     * Unmap BAR0
     */
     if ( edev->mmio ) pci_iounmap( pdev, edev->mmio );
