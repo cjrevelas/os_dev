@@ -7,8 +7,10 @@
 #include <linux/slab.h>
 #include <linux/io.h>
 #include <linux/dma-mapping.h>
-#include <linux/delay.h>
+#include <linux/completion.h>
+#include <linux/interrupt.h>
 #include <linux/string.h>
+#include <linux/delay.h>
 
 #define DRIVER_NAME "edu"
 
@@ -25,6 +27,12 @@
 #define EDU_REG_LIVENESS 0x04
 
 /*
+* Interrupt registers
+*/
+#define EDU_REG_IRQ_STATUS 0x24
+#define EDU_REQ_IRQ_ACK    0x64
+
+/*
 * Define EDU DMA register.
 */
 #define EDU_REG_DMA_SRC   0x80
@@ -36,13 +44,19 @@
 * EDU internal DMA buffer.
 */
 #define EDU_DMA_BUFFER 0x40000
-#define EDU_DMA_SIZE 4096
+#define EDU_DMA_SIZE   4096
 
 /*
 * DMA command bits.
 */
 #define EDU_DMA_START    0x01
 #define EDU_DMA_FROM_EDU 0x02
+#define EDU_DMA_IRQ      0x04
+
+/*
+* DMA interrupt status bit
+*/
+#define EDU_IRQ_DMA 0x100
 
 /*
 * Driver private data.
