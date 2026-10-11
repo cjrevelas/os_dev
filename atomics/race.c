@@ -1,15 +1,16 @@
 #include <pthread.h>
 #include <stdio.h>
+#include <stdatomic.h>
 
 #define ITERATIONS 1000000
 
-int counter = 0;
+atomic_int counter = 0;
 
 void *worker( void *arg )
 {
     for ( int i=0; i<ITERATIONS; i++ )
     {
-        counter++;
+        atomic_fetch_add( &counter, 1 );
     }
 
     return NULL;
