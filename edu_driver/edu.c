@@ -36,10 +36,6 @@
 * EDU internal DMA buffer.
 */
 #define EDU_DMA_BUFFER 0x40000
-
-/*
-* DMA buffer size.
-*/
 #define EDU_DMA_SIZE 4096
 
 /*
@@ -143,6 +139,88 @@ static int edu_dma_transfer( struct edu_device *edev,
 }
 
 /*
+* DMA test
+*/
+static int edu_dma_test( struct edu_device *edev )
+{
+    const char test_data[] = "Hello from DMA";
+    int ret;
+
+    /*
+    *--------------------------------------------------------
+    * PREPARE DMA BUFFER
+    *--------------------------------------------------------
+    *
+    * CPU writes the test data into RAM.
+    */
+    memset( edev->dma_virt, 0, EDU_DMA_SIZE );
+    memcpy( edev->dma_virt, test_data, sizeof( test_data ) );
+    pr_info( "edu: DMA buffer before transfer: \"%s\"\n", (char *)edev->dma_virt );
+
+    /*
+    *--------------------------------------------------------
+    * DMA #1: RAM -> EDU
+    *--------------------------------------------------------
+    *
+    * Source: our RAM buffer
+    * Destination: EDU internal DMA buffer
+    * Command:
+    *       bit 0 -> START
+    *       bit 1 = 0 => RAM -> EDU
+    */
+    pr_info( "edu: starting DMA RAM -> EDU\n" );
+    ret = edu_dma_transfer( edev, edev->dma_handle, EDU_DMA_BUFFER, sizeof( test_data ), EDU_DMA_START );
+    if ( ret ) return ret;
+
+    /*
+    * Clear the CPU buffer.
+    *
+    * This is important because otherwise we could end up
+    * comparing the original data with itself.
+    */
+    memset( edev->dma_virt, 0, sizeof( test_data ) );
+    
+    /*
+    *--------------------------------------------------------
+    * DMA #2: EDU -> RAM
+    *--------------------------------------------------------
+    *
+    * Source: EDU internal DMA buffer
+    * Destination: our RAM buffer
+    * Command:
+    *       bit 0 -> START
+    *       bit 1 = 1 => EDU -> RAM
+    */
+    pr_info( "edu: starting DMA EDU -> RAM\n" );
+    ret = edu_dma_transfer( edev, EDU_DMA_BUFFER, edev->dma_handle, sizeof( test_data ), EDU_DMA_START | EDU_DMA_FROM_EDU);
+    if ( ret ) return ret;
+
+    /*
+    *--------------------------------------------------------
+    * VERIFY DMA OPERATIONS
+    *--------------------------------------------------------
+    *
+    * The data should have made a round trip: RAM -> EDU -> RAM through DMA operations
+    */
+    if ( memcmp( edev->dma_virt, test_data, sizeof( test_data ) ) == 0 )
+    {
+        pr_info( "edu: DMA verification SUCCESS\n" );
+        pr_info( "edu: received data = \"%s\"\n", (char *)edev->dma_virt );
+    }
+    else
+    {
+        pr_info( "edu: DMA verification FAILED\n" );
+        pr_info( "edu: received data = \"%s\"\n", (char *)edev->dma_virt );
+
+        return -EIO;
+    }
+
+    pr_info( "edu: EDU->RAM DMA competed successfully\n" );
+
+    return 0;
+}
+
+/*
 * edu_probe: called by the PCI core when a matching device is found.
 */
 static int edu_probe( struct pci_dev *pdev, const struct pci_device_id *id )
@@ -152,11 +230,6 @@ static int edu_probe( struct pci_dev *pdev, const struct pci_device_id *id )
     resource_size_t bar_start;
     resource_size_t bar_len;
     unsigned long bar_flags;
-
-    /*
-    * Test-data for the DMA transfer.
-    */
-    const char test_data[] = "Hello from DMA!";
 
     pr_info( "edu: probe() called\n" );
 
@@ -269,7 +342,6 @@ static int edu_probe( struct pci_dev *pdev, const struct pci_device_id *id )
     pr_info( "edu: DMA DEVICE address = 0x%llx\n", (unsigned long long)edev->dma_handle );
     pr_info( "edu: DMA DEVICE address = %pad\n", &edev->dma_handle );
 
-
     /*
     *--------------------------------------------------------
     * BUS MASTERING    
@@ -309,80 +381,12 @@ static int edu_probe( struct pci_dev *pdev, const struct pci_device_id *id )
     }
 
     /*
-    *--------------------------------------------------------
-    * PREPARE DMA BUFFER
-    *--------------------------------------------------------
-    *
-    * CPU writes the test data into RAM.
+    * Perform DMA test.
     */
-    memset( edev->dma_virt, 0, EDU_DMA_SIZE );
-    memcpy( edev->dma_virt, test_data, sizeof( test_data ) );
-    pr_info( "edu: DMA buffer before transfer: \"%s\"\n", (char *)edev->dma_virt );
-
-    /*
-    *--------------------------------------------------------
-    * DMA #1: RAM -> EDU
-    *--------------------------------------------------------
-    *
-    * Source: our RAM buffer
-    * Destination: EDU internal DMA buffer
-    * Command:
-    *       bit 0 -> START
-    *       bit 1 = 0 => RAM -> EDU
-    */
-    pr_info( "edu: starting DMA RAM -> EDU\n" );
-
-    ret = edu_dma_transfer( edev, edev->dma_handle, EDU_DMA_BUFFER, sizeof( test_data ), EDU_DMA_START );
+    ret = edu_dma_test( edev );
     if ( ret )
     {
-        pr_err( "edu: RAM -> EDU DMA failed\n" );
-        goto err_free_dma;
-    }
-
-    pr_info( "edu: RAM->EDU DMA competed successfully\n" );
-
-    /*
-    *--------------------------------------------------------
-    * DMA #2: EDU -> RAM
-    *--------------------------------------------------------
-    *
-    * Source: EDU internal DMA buffer
-    * Destination: our RAM buffer
-    * Command:
-    *       bit 0 -> START
-    *       bit 1 = 1 => EDU -> RAM
-    */
-    pr_info( "edu: starting DMA EDU -> RAM\n" );
-
-    ret = edu_dma_transfer( edev, EDU_DMA_BUFFER, edev->dma_handle, sizeof( test_data ), EDU_DMA_START | EDU_DMA_FROM_EDU);
-    if ( ret )
-    {
-        pr_err( "edu: EDU -> RAM DMA failed\n" );
-        goto err_free_dma;
-    }
-
-    pr_info( "edu: EDU->RAM DMA competed successfully\n" );
-
-    /*
-    *--------------------------------------------------------
-    * VERIFY DMA OPERATIONS
-    *--------------------------------------------------------
-    *
-    * The data should have made a round trip: RAM -> EDU -> RAM through DMA operations
-    *
-    * Compare the result with the original test string.
-    */
-    if ( memcmp( edev->dma_virt, test_data, sizeof( test_data ) ) == 0 )
-    {
-        pr_info( "edu: DMA verification SUCCESS\n" );
-        pr_info( "edu: received data = \"%s\"\n", (char *)edev->dma_virt );
-    }
-    else
-    {
-        pr_info( "edu: DMA verification FAILED\n" );
-        pr_info( "edu: received data = \"%s\"\n", (char *)edev->dma_virt );
-
-        ret = -EIO;
+        pr_err( "edu: DMA test failed: %d\n", ret );
         goto err_free_dma;
     }
 
